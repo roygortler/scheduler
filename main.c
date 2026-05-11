@@ -121,7 +121,7 @@ void task_high_prio() {
     // Task naturally exits here!
 }
 
-// FIX: Removed duplicate count++ and lowered limit to 3 for fast testing
+
 void task_low_prio() {
     int count = 0;
     while (count < 3) {
@@ -129,7 +129,7 @@ void task_low_prio() {
         usleep(50000);
         task_yield();
     }
-    // Task naturally exits here!
+  
 }
 
 void task_yield() {
