@@ -18,9 +18,11 @@ typedef enum {
 typedef struct {
     int id;
     int priority;       
-    int quantum;       
+    int quantum;        
     TaskState state;
-    jmp_buf context;   
+    jmp_buf context;    
+    int is_started;                  
+    void (*task_func)(void);       
 } TCB;
 
 
@@ -77,6 +79,7 @@ TCB* get_next_task() {
     }
     return NULL; 
 }
+
 int scheduler_ticks = 0;
 
 
@@ -96,4 +99,28 @@ void prevent_starvation() {
             }
         }
     }
+    void switch_context(TCB* next_task) {
+   
+    if (current_running_task != NULL && current_running_task->state == RUNNING) {
+        current_running_task->state = READY;
+        
+        if (setjmp(current_running_task->context) == 0) {
+            enqueue(current_running_task); 
+        } else {
+            return;
+        }
+    }
+    current_running_task = next_task;
+    current_running_task->state = RUNNING;
+    
+    printf("\n[Context Switch] ---> Running Task %d (Priority %d)\n", 
+           current_running_task->id, current_running_task->priority);
+
+    if (current_running_task->is_started == 0) {
+        current_running_task->is_started = 1;
+        current_running_task->task_func();   
+    } else {
+        longjmp(current_running_task->context, 1); 
+    }
+}
 }
