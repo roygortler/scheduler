@@ -110,7 +110,7 @@ void prevent_starvation() {
     }
 }
 
-// FIX: Removed duplicate count++ and lowered limit to 5 for fast testing
+
 void task_high_prio() {
     int count = 0;
     while (count < 5) {
@@ -118,7 +118,7 @@ void task_high_prio() {
         usleep(50000);
         task_yield();
     }
-    // Task naturally exits here!
+
 }
 
 
@@ -187,8 +187,7 @@ int main() {
 
         swapcontext(&scheduler_context, &current_running_task->context);
         
-        // FIX: When swapcontext returns to main, if the task finished its function 
-        // naturally (did not yield), its state is still RUNNING. We mark it as TERMINATED here.
+       
         if (current_running_task->state == RUNNING) {
             current_running_task->state = TERMINATED;
             printf("[Scheduler] Cleaned up completed Task %d\n", current_running_task->id);
