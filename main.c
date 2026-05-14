@@ -18,14 +18,17 @@ typedef enum {
 } TaskState;
 
 typedef struct {
-    int id;
-    int priority;       
-    int quantum;        
-    TaskState state;
-    ucontext_t context;       
-    void (*task_func)(void);  
-    char stack[STACK_SIZE];   
-} TCB;
+    ucontext_t context;    // שומר את מצב המעבד (Registers, Stack Pointer)
+    int id;                // מזהה ייחודי למשימה
+    int priority;          // רמת העדיפות (לניהול ה-Queue שלך)
+    bool is_active;        // האם המשימה כרגע בשימוש או שהסלוט פנוי
+    uint8_t stack[];       
+} TaskControlBlock;
+typedef struct {
+    void *pool_start;      // כתובת הזיכרון שקיבלנו מה-malloc הגדול
+    size_t task_block_size;// גודל של (TCB + המחסנית המוקצית לו)
+    int max_tasks;         // כמות המשימות המקסימלית שהגדרנו מראש
+} TaskPool;
 
 TCB t1, t2, t3;
 
@@ -153,6 +156,69 @@ void init_task_context(TCB* task) {
     task->context.uc_stack.ss_flags = 0;
     task->context.uc_link = &scheduler_context; 
     makecontext(&task->context, task->task_func, 0);
+}
+#include <stdlib.h>
+#include <stdio.h>
+
+TaskPool* initialize_scheduler_pool(int num_tasks, size_t stack_size) {
+    TaskPool *tp = (TaskPool*) malloc(sizeof(TaskPool));
+    if (!tp) return NULL;
+    tp->task_block_size = sizeof(TaskControlBlock) + stack_size;
+    tp->max_tasks = num_tasks;
+//allocating memory for the whole pool
+    tp->pool_start = malloc(tp->task_block_size * num_tasks);
+    
+    if (!tp->pool_start) {
+        free(tp);
+        return NULL;
+    }
+    for (int i = 0; i < num_tasks; i++) {
+        TaskControlBlock *tcb = (TaskControlBlock*)((uint8_t*)tp->pool_start + (i * tp->task_block_size));
+        tcb->is_active = false;
+        tcb->id = -1; 
+    }
+
+    printf("Scheduler Pool initialized: %d tasks, %zu bytes each. Total: %zu MB\n", 
+            num_tasks, tp->task_block_size, (tp->task_block_size * num_tasks) / (1024 * 1024));
+
+    return tp;
+}
+#include <ucontext.h>
+
+TaskControlBlock* spawn_task(TaskPool *tp, void (*func)(void), int priority) {
+    
+    for (int i = 0; i < tp->max_tasks; i++) {
+        // getting the ith task from the pool
+        TaskControlBlock *tcb = (TaskControlBlock*)((uint8_t*)tp->pool_start + (i * tp->task_block_size));
+
+        if (!tcb->is_active) {
+            tcb->is_active = true;
+            tcb->id = i;
+            tcb->priority = priority;
+
+            if (getcontext(&tcb->context) == -1) {
+                tcb->is_active = false;
+                return NULL;
+            }
+
+            /* 3. הגדרת המחסנית (החלק הקריטי!)
+               אנחנו אומרים למעבד שהמחסנית שלו מתחילה בכתובת של tcb->stack,
+               שהיא בדיוק הזיכרון העודף שהקצינו ב-malloc. */
+            tcb->context.uc_stack.ss_sp = tcb->stack; 
+            
+            // הגודל הוא גודל הבלוק כולו פחות ה-Metadata של ה-struct
+            tcb->context.uc_stack.ss_size = tp->task_block_size - sizeof(TaskControlBlock);
+            
+            tcb->context.uc_link = NULL; // המשימה לא חוזרת לשום מקום כשהיא מסתיימת
+
+            // 4. קישור הפונקציה למשימה
+            makecontext(&tcb->context, func, 0);
+
+            return tcb;
+        }
+    }
+
+    return NULL; // לא נמצא סלוט פנוי (Pool Full)
 }
 
 int main() {
